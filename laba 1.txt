@@ -1,0 +1,175 @@
+#include <iostream>
+#include <fstream>
+#include <vector>
+
+using namespace std;
+#pragma pack(push, 1)
+
+struct BMPHeader {
+    char signature[2]{ 'B', 'M' };
+    uint32_t fileSize;
+    uint32_t reserved{ 0 };
+    uint32_t dataOffset;
+};
+
+struct BMPInfoHeader {
+    uint32_t headerSize{ 40 };
+    uint32_t width;
+    uint32_t height;
+    uint16_t planes{ 1 };
+    uint16_t bpp{ 24 };
+    uint32_t compression{ 0 };
+    uint32_t imageSize{ 0 };
+    uint32_t xPixelsPerM{ 0 };
+    uint32_t yPixelsPerM{ 0 };
+    uint32_t colorsUsed{ 0 };
+    uint32_t colorsImportant{ 0 };
+};
+
+struct Pixel {
+    unsigned char blue;
+    unsigned char green;
+    unsigned char red;
+};
+
+// конвертация файла в формат BMP
+void convertToBMP(const string& inputFileName, const string& outputFileName) {
+    ifstream inputFile(inputFileName, ios::binary);
+    if (!inputFile.is_open()) {
+        throw runtime_error("Failed to open the file");
+    }
+    ofstream outputFile(outputFileName, ios::binary);   // открываем выходной файл в бинарном режиме
+    if (!outputFile) {
+        cout << "Error: unable to create output file" << endl;
+        return;
+    }
+
+    vector<uint8_t> data((istreambuf_iterator<char>(inputFile)), istreambuf_iterator<char>());
+    inputFile.close();
+
+    BMPHeader bmpHeader;   // создаем заголовок BMP
+    BMPInfoHeader bmpInfoHeader;
+    bmpHeader.fileSize = sizeof(BMPHeader) + sizeof(BMPInfoHeader) + data.size();
+    bmpHeader.dataOffset = sizeof(BMPHeader) + sizeof(BMPInfoHeader);
+
+    bmpInfoHeader.width = 300;
+    bmpInfoHeader.height = 100;
+    bmpInfoHeader.imageSize = data.size();
+
+    // запись заголовока и данных в выходной файл
+    outputFile.write(reinterpret_cast<char*>(&bmpHeader), sizeof(bmpHeader));
+    outputFile.write(reinterpret_cast<char*>(&bmpInfoHeader), sizeof(bmpInfoHeader));
+    outputFile.write(reinterpret_cast<char*>(data.data()), data.size());
+
+    outputFile.close();
+}
+
+// конвертация изображения в оттенки серого
+void convertToGrayscale(const string& inputFileName, const string& outputFileName) {
+    ifstream inputFile(inputFileName, ios::binary);
+    ofstream outputFile(outputFileName, ios::binary);   // Открываем выходной файл в бинарном режиме
+
+    BMPHeader bmpHeader;
+    BMPInfoHeader bmpInfoHeader;
+    inputFile.read(reinterpret_cast<char*>(&bmpHeader), sizeof(bmpHeader));
+    inputFile.read(reinterpret_cast<char*>(&bmpInfoHeader), sizeof(bmpInfoHeader));
+
+    int width = bmpInfoHeader.width;
+    int height = bmpInfoHeader.height;
+    Pixel** pixels = new Pixel * [height];
+    for (int i = 0; i < height; i++) {
+        pixels[i] = new Pixel[width];
+        inputFile.read((char*)pixels[i], sizeof(Pixel) * width);   // считываем пиксели изображения
+    }
+    inputFile.close();
+
+    // преобразуем цвета пикселей в оттенки серого
+    for (int i = 0; i < height; i++) {
+        for (int j = 0; j < width; j++) {
+            unsigned char gray = 0.21 * pixels[i][j].red + 0.72 * pixels[i][j].green + 0.07 * pixels[i][j].blue;
+            pixels[i][j].red = gray;
+            pixels[i][j].green = gray;
+            pixels[i][j].blue = gray;
+        }
+    }
+
+    // запись заголовока и данных в выходной файл
+    outputFile.write(reinterpret_cast<char*>(&bmpHeader), sizeof(bmpHeader));
+    outputFile.write(reinterpret_cast<char*>(&bmpInfoHeader), sizeof(bmpInfoHeader));
+    for (int i = 0; i < height; i++) {
+        outputFile.write((const char*)pixels[i], sizeof(Pixel) * width);
+    }
+    outputFile.close();
+
+    // Освобождение памяти, выделенной под пиксели
+    for (int i = 0; i < height; i++) {
+        delete[] pixels[i];
+    }
+    delete[] pixels;
+}
+
+// декодирование BMP-файла
+void decodeBMP(const string& inputFileName, const string& outputFileName) {
+    ifstream input(inputFileName, ios::binary);
+    ofstream output(outputFileName, ios::binary); // открытие выходного файла в бинарном режиме
+
+    if (!input) {
+        cout << "Error: unable to open input file" << endl;
+        return;
+    }
+
+    if (!output) {
+        cout << "Error: unable to create output file" << endl;
+        return;
+    }
+
+    unsigned char buffer[54];
+    input.read(reinterpret_cast<char*>(buffer), 54);
+
+    unsigned char pixel;
+    while (input.get(reinterpret_cast<char&>(pixel))) {
+        output << static_cast<char>(pixel);
+    }
+
+    input.close();
+    output.close();
+    cout << "The file is decoded and saved as " << outputFileName << endl;
+}
+
+// определение типа файла по его имени
+string IsType(const string& inputFileName) {
+    size_t dotPosition = inputFileName.rfind('.');
+    string type;
+    if (dotPosition != string::npos) {
+        type = inputFileName.substr(dotPosition + 1);
+    }
+    return type;
+}
+
+
+int main(int argc, char** argv) {
+
+    setlocale(LC_ALL, "RU");
+
+    if (argc < 3) {
+        cout << "Usage: " << argv[0] << " -e/-encode <input_file> OR " << argv[0] << " -d/-decode <input_image>" << endl;
+        return 1;
+    }
+    string command = argv[1];
+    string filename = argv[2];
+    string type = IsType(filename);
+    string inputFileName = filename;
+    string bmpFileName = "input.bmp";
+    string grayscaleFileName = "output.bmp";
+
+    if (command == "-e" || command == "-encode") {
+        convertToBMP(inputFileName, bmpFileName);         // Конвертируем в формат BMP
+        convertToGrayscale(bmpFileName, grayscaleFileName);  // Преобразуем в оттенки серого
+        cout << "Successfully!" << endl;
+    }
+    else if (command == "-d" || command == "-decode") {
+        string outputfinal = "output." + type;
+        decodeBMP("input.bmp", outputfinal);     // Декодируем BMP-файл
+    }
+    return 0;
+}
